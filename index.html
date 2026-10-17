@@ -119,5 +119,133 @@ Error generating stack: `+i.message+`
 </script>
   <script>(function(){function m(a){var h=a.getAttribute("href");if(!h)return;try{var u=new URL(h,document.baseURI);if((u.protocol==="http:"||u.protocol==="https:")&&u.host!==location.host){a.target="_blank";a.rel="noopener noreferrer";}}catch(e){}}function s(){document.querySelectorAll("a[href]").forEach(m);}if(document.readyState!=="loading"){s();}else{document.addEventListener("DOMContentLoaded",s);}document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(a){m(a);}},true);})();</script>
   <script type="application/json" data-clippy-inline-media-manifest="1">{"version":1,"slots":[]}</script>
+
+<script>
+(function(){
+  function applyFixes(){
+    try{
+      // 1. Remove duplicate DATE & TIME row (contains datetime-local)
+      document.querySelectorAll('input[type="datetime-local"]').forEach(function(el){
+        let grid = el.closest('.grid');
+        if(grid && grid.classList.contains('grid-cols-2')) grid.style.display='none';
+        else {
+          let parent = el.closest('div');
+          if(parent) parent.style.display='none';
+        }
+      });
+
+      // 2. Force DD/MM/YYYY display - add lang en-GB to all date inputs
+      document.querySelectorAll('input[type="date"]').forEach(function(el){
+        el.setAttribute('lang','en-GB');
+        el.setAttribute('lang','bn-BD');
+      });
+
+      // 3. Swap selected button and contact icon for Office Work header
+      // Find headers that contain "selected"
+      document.querySelectorAll('div').forEach(function(div){
+        if(div.textContent && div.textContent.includes('selected') && div.textContent.includes('Office') === false){
+          // Check if this is the header flex
+          let parent = div.closest('.flex.items-center.justify-between');
+          if(parent){
+            // Already handled below
+          }
+        }
+      });
+
+      // More specific: find the office header
+      let headers = document.querySelectorAll('.flex.items-center.justify-between');
+      headers.forEach(function(h){
+        let html = h.innerHTML;
+        if(html.includes('selected') && (html.includes('Office') || html.includes('অফিস'))){
+          let selectedSpan = h.querySelector('span');
+          let label = h.querySelector('label');
+          if(label && selectedSpan){
+            // Create contact button
+            if(!h.querySelector('#custom-contact-btn')){
+              let contactBtn = document.createElement('button');
+              contactBtn.id='custom-contact-btn';
+              contactBtn.innerHTML='👤';
+              contactBtn.style.cssText='height:34px;width:34px;border-radius:50%;background:#1E4538;color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 1px 3px rgba(0,0,0,0.2)';
+              contactBtn.onclick = function(){
+                // Try to trigger original contact picker
+                let pickBtn = document.querySelector('button');
+                // Find button that says Pick from Contact
+                let allBtns = document.querySelectorAll('button');
+                for(let b of allBtns){
+                  if(b.textContent.includes('Pick from') || b.textContent.includes('ফোনের কন্টাক্ট')){
+                    b.click();
+                    return;
+                  }
+                }
+                // Fallback: try to find any button with contact icon
+                let ev = new Event('click');
+              };
+              // Swap: left should be selected, right should be contact
+              h.innerHTML='';
+              h.appendChild(selectedSpan);
+              h.appendChild(contactBtn);
+              // Make selected more visible
+              selectedSpan.style.cssText='font-size:11px;font-weight:bold;padding:6px 12px;border-radius:9999px;background:#1E4538;color:#fff';
+            }
+          }
+        }
+      });
+
+      // 4. Patch navigator.contacts.select to handle multiple numbers
+      if(navigator.contacts && navigator.contacts.select && !navigator.contacts._patched){
+        let originalSelect = navigator.contacts.select.bind(navigator.contacts);
+        navigator.contacts._patched = true;
+        navigator.contacts.select = async function(props, opts){
+          let results = await originalSelect(props, opts);
+          if(!results || !results[0]) return results;
+          let contact = results[0];
+          let tels = contact.tel || [];
+          if(tels.length <= 1) return results;
+          // Multiple numbers - show picker
+          return new Promise(function(resolve){
+            let overlay = document.createElement('div');
+            overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);display:flex;align-items:flex-end;justify-content:center;';
+            let box = document.createElement('div');
+            box.style.cssText='width:100%;max-width:440px;background:#FFFEF7;border-radius:28px 28px 0 0;max-height:70vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 -12px 40px rgba(0,0,0,0.2);';
+            let name = (contact.name && contact.name[0]) || 'Contact';
+            let html = '<div style="padding:20px;border-bottom:1px solid #EBE3D1;display:flex;justify-content:space-between;align-items:center"><div><div style="font-weight:bold;font-size:15px">📱 '+name+'</div><div style="font-size:11px;color:#666;margin-top:4px">'+tels.length+' টি নম্বর - একটা সিলেক্ট করুন</div></div><button id="close-multi" style="width:32px;height:32px;border-radius:50%;background:#fff;border:1px solid #ddd">✕</button></div><div style="padding:16px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:10px">';
+            tels.forEach(function(num, idx){
+              html += '<button data-num="'+num.replace(/"/g,'&quot;')+'" style="width:100%;text-align:left;padding:14px 16px;border-radius:12px;background:#fff;border:1px solid #EBE3D1;display:flex;align-items:center;gap:12px"><span style="width:32px;height:32px;border-radius:50%;background:#1E4538;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold">'+(idx+1)+'</span><span style="font-size:15px;font-weight:600">'+num+'</span><span style="margin-left:auto">📞</span></button>';
+            });
+            html += '</div>';
+            box.innerHTML = html;
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            function close(){ overlay.remove(); resolve([]); }
+            overlay.addEventListener('click', function(e){ if(e.target===overlay) close(); });
+            let closeBtn = box.querySelector('#close-multi');
+            if(closeBtn) closeBtn.addEventListener('click', close);
+            box.querySelectorAll('button[data-num]').forEach(function(btn){
+              btn.addEventListener('click', function(){
+                let num = btn.getAttribute('data-num');
+                contact.tel = [num];
+                overlay.remove();
+                resolve([contact]);
+              });
+            });
+          });
+        };
+      }
+    }catch(e){ console.log('patch error', e); }
+  }
+
+  // Run after load and observe for React re-renders
+  window.addEventListener('load', function(){
+    setTimeout(applyFixes, 500);
+    setTimeout(applyFixes, 1500);
+    setTimeout(applyFixes, 3000);
+  });
+
+  // Also observe DOM changes
+  let observer = new MutationObserver(function(){ applyFixes(); });
+  observer.observe(document.documentElement, {childList:true, subtree:true});
+})();
+</script>
+
 </body>
 </html>
